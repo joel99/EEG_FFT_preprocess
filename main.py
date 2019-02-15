@@ -3,7 +3,8 @@ directoryName = "./raw2"
 channels_to_keep = ['C3', 'C4', 'Fz', 'Cz', 'Pz', 'FC1', 'FC2', 'CP1', 'CP2', 'TP9', 'CP3', 'CP4', 'EOG']
 #these are the channels that all the recordings have in common
 samplingRate = 5000
-timeBeforeStimulus = 1 * samplingRate
+beforeOffset = 10 # make sure we don't catch any noise
+timeBeforeStimulus = 1 * samplingRate + beforeOffset
 isDisjointOnAnatomy = False
 
 from pandas import Series
@@ -43,18 +44,18 @@ if __name__ == "__main__":
         
         # print("Number of stimuli: {}".format(num_stim))
         # Canonical only includes what we want
-        apb_string = 'L APB'
-        apb_string2 = 'APB'
         # Todo, also check for the second str
-        canonical_ordering = [apb_string, 'Fz', 'FC1', 'FC2', 'Cz', 'C3', 'C4', 'CP1', 'CP2', 'CP3', 'CP4', 'Pz', 'TP9', 'EOG']
+        canonical_ordering = ['Fz', 'FC1', 'FC2', 'Cz', 'C3', 'C4', 'CP1', 'CP2', 'CP3', 'CP4', 'Pz', 'TP9', 'EOG']
         num_channels = len(canonical_ordering)
         sample_ordering = misc["chan_lab"]
+        motor_data = None
         try:
             found_axes = [sample_ordering.index(c) for c in canonical_ordering]
         except:
             print("Metadata corruption, unexpected channel labels, dropping data")
             continue
         else:
+            motor_data = data[0]
             default_ordering = range(len(canonical_ordering))
             data[default_ordering] = data[found_axes] # Permute channels to front
             data = data[:len(canonical_ordering)]
@@ -62,21 +63,19 @@ if __name__ == "__main__":
         # Select relevant channels
         # ['C3', 'C4', 'Fz', 'Cz', 'Pz', 'FC1', 'FC2', 'CP1', 'CP2', 'TP9', 'CP3', 'CP4', 'EOG']
         # Basically these are the channels we analyze
-        eeg_data = data[1:] # Skip first 3 channels, canonical
-        motor_data = data[0]
-        num_channels -= 1
+        eeg_data = data # Skip first 3 channels, canonical
 
         stim_window_start = 20e-3
         stim_window_end = 50e-3
 
-        MEPs = np.array([calcMEP(motor_data[mark+int(samplingRate * stim_window_start):mark+int(samplingRate * stim_window_end)]) for mark in markers])
-        medianMEP = np.median(MEPs) # We keep the median across all trials (even ones we don't sample for - so *not* 50 50 in the end)
-        # print("Median MEP for this session: {}".format(medianMEP))
         previous_stim = 0
         silent_period = 15e-2
         silent_end = int(samplingRate * silent_period)
         keep_windows = np.ones_like(markers, dtype='bool') # 0 if window is bad
         x_session = np.zeros((num_stim,num_channels,timeBeforeStimulus))
+        MEPs = np.array([calcMEP(motor_data[mark+int(samplingRate * stim_window_start):mark+int(samplingRate * stim_window_end)]) for mark in markers])
+        medianMEP = np.median(MEPs) # We keep the median across all trials (even ones we don't sample for - so *not* 50 50 in the end)
+            # print("Median MEP for this session: {}".format(medianMEP))
         for i, mark in enumerate(markers):
             if (i == 0 and mark < timeBeforeStimulus) \
                 or previous_stim + silent_end > mark - timeBeforeStimulus: # 0 assumes ordered stimuli
@@ -89,7 +88,7 @@ if __name__ == "__main__":
                 # print(MEPs)
                 # print(x_session.shape)
                 continue
-            x_session[i] = eeg_data[:,mark-timeBeforeStimulus:mark]
+            x_session[i] = eeg_data[:,mark-timeBeforeStimulus-beforeOffset:mark-beforeOffset]
 
         # Really can't figure out a numpy way to do this
         good_count = np.count_nonzero(keep_windows)
